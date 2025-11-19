@@ -14,4 +14,4 @@ add_thumbnails_if_needed() {
     fi
 }
 
-iterate_images add_thumbnails_if_needed
+iterate_images add_thumbnails_if_needed "*.jpg" "*.jpeg" "*.png" "*.tif" "*.tiff" "*.webp"

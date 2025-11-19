@@ -25,4 +25,4 @@ extract_thumbnail() {
     fi
 }
 
-iterate_images extract_thumbnail
+iterate_images extract_thumbnail "*.jpg" "*.jpeg" "*.png" "*.tif" "*.tiff" "*.webp"

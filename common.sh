@@ -32,11 +32,11 @@ add_thumbnail() {
     fi
 }
 
-# Function to iterate over all image files in subdirectories
+# Function to iterate over image files in subdirectories for specified extensions
 iterate_images() {
     local func_name=$1
-    # Supported image extensions
-    local extensions=("*.jpg" "*.jpeg" "*.png" "*.tif" "*.tiff" "*.webp")
+    shift
+    local extensions=("$@")
 
     echo "Iterating over image files in subdirectories:"
 
