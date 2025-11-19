@@ -18,4 +18,7 @@ compress_tiff() {
     fi
 }
 
+# Export the function for parallel processing
+export -f compress_tiff
+
 iterate_images compress_tiff "*.tif" "*.tiff"

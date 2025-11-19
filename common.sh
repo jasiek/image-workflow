@@ -16,7 +16,7 @@ add_thumbnail() {
     local file=$1
     local thumb="${file%.*}-thumb.jpg"  # Thumbnail file name required by exiv2
     # Generate a small thumbnail image
-    gm convert "$file" -resize 150x150 "$thumb" 2>/dev/null
+    gm convert "$file" -resize 256x256 "$thumb" 2>/dev/null
     if [ -f "$thumb" ]; then
         # Embed the thumbnail into the image metadata
         exiv2 -i t "$file" 2>/dev/null
@@ -38,13 +38,14 @@ iterate_images() {
     shift
     local extensions=("$@")
 
-    echo "Iterating over image files in subdirectories:"
+    echo "Iterating over image files in subdirectories (in parallel):"
+
+    # Export the function for parallel
+    export -f "$func_name"
+    export SCRIPT_DIR  # Assuming SCRIPT_DIR is set in calling scripts
 
     # Loop through each extension and find files recursively
     for ext in "${extensions[@]}"; do
-        find . -type f -iname "$ext" 2>/dev/null | while read -r file; do
-            echo "Processing $file"
-            "$func_name" "$file"
-        done
+        find . -type f -iname "$ext" 2>/dev/null -print0 | parallel --env SCRIPT_DIR -0 --no-notice 'source "$SCRIPT_DIR/common.sh"; '"$func_name {}"
     done
 }

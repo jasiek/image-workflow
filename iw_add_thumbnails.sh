@@ -14,4 +14,7 @@ add_thumbnails_if_needed() {
     fi
 }
 
+# Export the function for parallel processing
+export -f add_thumbnails_if_needed
+
 iterate_images add_thumbnails_if_needed "*.jpg" "*.jpeg" "*.png" "*.tif" "*.tiff" "*.webp"

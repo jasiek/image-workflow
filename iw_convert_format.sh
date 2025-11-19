@@ -33,5 +33,9 @@ convert_to_format() {
     fi
 }
 
+# Export the function and variable for parallel processing
+export -f convert_to_format
+export TARGET_FORMAT
+
 echo "Converting all images to .$TARGET_FORMAT format in converted/ directory"
 iterate_images convert_to_format "*.jpg" "*.jpeg" "*.png" "*.tif" "*.tiff" "*.webp"

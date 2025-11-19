@@ -8,7 +8,11 @@ source "$SCRIPT_DIR/common.sh"
 extract_thumbnail() {
     local file=$1
     local ext="${file##*.}"
-    local thumb="${file%.*}_thumb.${ext}"
+    local dir=$(dirname "$file")
+    local base=$(basename "$file")
+    local thumb_dir="thumbnails/$dir"
+    mkdir -p "$thumb_dir"
+    local thumb="$thumb_dir/${base%.*}-thumb.jpg"
     if has_thumbnail "$file"; then
         echo "Extracting thumbnail from $file to $thumb"
         exiv2 -et "$file"
@@ -24,5 +28,8 @@ extract_thumbnail() {
         echo "No thumbnail in $file"
     fi
 }
+
+# Export the function for parallel processing
+export -f extract_thumbnail
 
 iterate_images extract_thumbnail "*.jpg" "*.jpeg" "*.png" "*.tif" "*.tiff" "*.webp"
