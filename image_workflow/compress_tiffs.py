@@ -1,11 +1,28 @@
 import tifffile
+import json
+import os
 from pathlib import Path
-from .common import iterate_images
+from .common import iterate_images, get_sha1, get_existing_metadata
 
 
 def compress_tiff(file_path):
     file_path = Path(file_path)
     output_file = file_path.with_name(f"{file_path.stem}-compressed.tiff")
+
+    # Gather metadata
+    stat = file_path.stat()
+
+    existing_meta = get_existing_metadata(file_path)
+    if existing_meta:
+        json_str = json.dumps(existing_meta)
+    else:
+        created_at = getattr(stat, "st_birthtime", stat.st_mtime)
+        sha1 = get_sha1(file_path)
+        source_file = str(file_path.resolve())
+
+        metadata = {"created_at": created_at, "sha1": sha1, "source_file": source_file}
+        json_str = json.dumps(metadata)
+
     try:
         with tifffile.TiffFile(file_path) as tif:
             arr = tif.asarray()
@@ -47,6 +64,7 @@ def compress_tiff(file_path):
                 compression="LZW",
                 subifds=1 if has_thumb else 0,
                 resolution=resolution,
+                description=json_str,
             )
 
             if has_thumb:
@@ -56,6 +74,9 @@ def compress_tiff(file_path):
                     subfiletype=1,
                     compression="LZW",
                 )
+
+        # Preserve timestamps
+        os.utime(output_file, (stat.st_atime, stat.st_mtime))
 
         output_file.replace(file_path)
         print(f"Compressed {file_path}")

@@ -1,5 +1,8 @@
 import os
 import shutil
+import hashlib
+import json
+import subprocess
 from io import BytesIO
 from pathlib import Path
 
@@ -24,6 +27,33 @@ class ExifImageProcessor:
         file_str = str(file_path)
         if not os.path.isfile(file_path):
             return False
+
+        path_obj = Path(file_path)
+
+        # Metadata Logic: Prefer existing, else create new
+        existing_meta = get_existing_metadata(path_obj)
+        if existing_meta:
+            json_str = json.dumps(existing_meta)
+            # Use existing stats for restoration? Or current stats?
+            # If we are modifying the file, we want to restore PRE-modification stats.
+            # But technically the "Original Creation Date" in JSON refers to the SOURCE.
+            # The file modification date should preserve the file's history.
+            # So we restore stats of the file as it was before this operation.
+            stat = path_obj.stat()
+        else:
+            # Gather new metadata
+            stat = path_obj.stat()
+            created_at = getattr(stat, "st_birthtime", stat.st_mtime)
+            sha1 = get_sha1(path_obj)
+            source_file = str(path_obj.resolve())
+
+            metadata = {
+                "created_at": created_at,
+                "sha1": sha1,
+                "source_file": source_file,
+            }
+            json_str = json.dumps(metadata)
+
         with Image.open(file_str) as img:
             thumb = img.resize((256, 256))
             buffer = BytesIO()
@@ -36,9 +66,21 @@ class ExifImageProcessor:
             # Create new EXIF with thumbnail
             exif_dict = {"thumbnail": thumb_bytes}
             print(f"Added thumbnail to {file_path}: created new EXIF segment")
+
         exif_dict["thumbnail"] = thumb_bytes
+
+        # Embed metadata in ImageDescription (Tag 270)
+        if "0th" not in exif_dict:
+            exif_dict["0th"] = {}
+
+        exif_dict["0th"][piexif.ImageIFD.ImageDescription] = json_str.encode("utf-8")
+
         exif_bytes = piexif.dump(exif_dict)
         piexif.insert(exif_bytes, file_str)
+
+        # Restore timestamps
+        os.utime(file_str, (stat.st_atime, stat.st_mtime))
+
         print(f"Added thumbnail to {file_path}")
         return True
 
@@ -155,17 +197,30 @@ class TiffImageProcessor:
         if TiffImageProcessor.has_thumbnail(file_path):
             return False
 
+        path_obj = Path(file_path)
+
+        # Metadata Logic: Prefer existing, else create new
+        existing_meta = get_existing_metadata(path_obj)
+        if existing_meta:
+            json_str = json.dumps(existing_meta)
+            stat = path_obj.stat()
+        else:
+            # Gather metadata
+            stat = path_obj.stat()
+            created_at = getattr(stat, "st_birthtime", stat.st_mtime)
+            sha1 = get_sha1(path_obj)
+            source_file = str(path_obj.resolve())
+
+            metadata = {
+                "created_at": created_at,
+                "sha1": sha1,
+                "source_file": source_file,
+            }
+            json_str = json.dumps(metadata)
+
         # Generate thumbnail
         with Image.open(file_str) as img:
             thumb = img.resize((256, 256))
-            # We need the array for tifffile, so we can just get it from PIL
-            thumb_arr = np.array(thumb) if "np" in globals() else None
-            # If numpy is not imported globally, we can still rely on PIL -> BytesIO -> tifffile to get array
-            # or just use numpy if available. common.py doesn't import numpy.
-            # Let's use the existing approach to get the array safely without adding numpy dependency if possible,
-            # but tifffile uses numpy arrays so numpy is definitely available implicitly or explicitly.
-            # Tifffile returns numpy arrays.
-
             buffer = BytesIO()
             thumb.save(buffer, "TIFF")
             thumb_bytes = buffer.getvalue()
@@ -183,8 +238,13 @@ class TiffImageProcessor:
             # Write original with SubIFD pointing to thumbnail
             with tifffile.TiffWriter(tmp_path) as writer:
                 # subifds=1 means we promise 1 subifd for this page
+                # Add description metadata
                 writer.write(
-                    arr, photometric=photometric, compression=compression, subifds=1
+                    arr,
+                    photometric=photometric,
+                    compression=compression,
+                    subifds=1,
+                    description=json_str,
                 )
 
                 # Load thumb as array
@@ -198,6 +258,10 @@ class TiffImageProcessor:
                 writer.write(thumb_arr, photometric=thumb_photometric, subfiletype=1)
 
             os.replace(tmp_path, file_str)
+
+            # Restore timestamps
+            os.utime(file_str, (stat.st_atime, stat.st_mtime))
+
             print(f"Added thumbnail to {file_path}")
             return True
         except Exception as e:
@@ -325,11 +389,80 @@ def remove_thumbnail(file_path):
     return processor.remove_thumbnail(file_path)
 
 
-def iterate_images(func, extensions):
+def iterate_images(func, extensions, collect_results=False):
     """Iterate over image files in subdirectories and apply func sequentially."""
     files = []
     for ext in extensions:
         files.extend(Path(".").rglob(f"*{ext}"))
 
+    results = []
     for file in files:
-        func(file)
+        res = func(file)
+        if collect_results and res is not None:
+            results.append(res)
+
+    if collect_results:
+        return results
+
+
+def get_sha1(path):
+    h = hashlib.sha1()
+    with open(path, "rb") as f:
+        while chunk := f.read(8192):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def get_existing_metadata(file_path):
+    """
+    Attempt to read existing JSON metadata from image comments/description.
+    Returns dict or None.
+    """
+    try:
+        # 1. Try gm identify -format "%c"
+        res = subprocess.run(
+            ["gm", "identify", "-format", "%c", str(file_path)],
+            capture_output=True,
+            text=True,
+        )
+        if res.returncode == 0:
+            output = res.stdout.strip()
+            if output:
+                try:
+                    data = json.loads(output)
+                    if (
+                        isinstance(data, dict)
+                        and "sha1" in data
+                        and "source_file" in data
+                    ):
+                        return data
+                except json.JSONDecodeError:
+                    pass
+
+        # 2. Fallback to verbose output parsing (sometimes %c is empty for PNG)
+        res = subprocess.run(
+            ["gm", "identify", "-verbose", str(file_path)],
+            capture_output=True,
+            text=True,
+        )
+        if res.returncode == 0:
+            import re
+
+            # Look for "Comment: {json}"
+            # It might be at the start of the line with indent
+            match = re.search(r"^\s*Comment:\s*(\{.*\})", res.stdout, re.MULTILINE)
+            if match:
+                try:
+                    data = json.loads(match.group(1))
+                    if (
+                        isinstance(data, dict)
+                        and "sha1" in data
+                        and "source_file" in data
+                    ):
+                        return data
+                except json.JSONDecodeError:
+                    pass
+
+    except Exception:
+        pass
+    return None
