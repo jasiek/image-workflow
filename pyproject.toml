@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "image-workflow"
+version = "0.1.0"
+description = "Image processing workflow scripts"
+authors = ["Your Name <you@example.com>"]
+license = "MIT"
+
+[tool.poetry.dependencies]
+python = ">=3.11"
+pillow = "^12.0.0"
+piexif = "^1.1.3"
+tifffile = "^2023.11.12"
+imagecodecs = "^2025.11.11"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+
+[tool.poetry.scripts]
+iw-add-thumbnails = "image_workflow.add_thumbnails:main"
+iw-compress-tiffs = "image_workflow.compress_tiffs:main"
+iw-convert-format = "image_workflow.convert_format:main"
+iw-extract-thumbnails = "image_workflow.extract_thumbnails:main"
+iw-generate-html-gallery = "image_workflow.generate_html_gallery:main"
+iw-remove-thumbnails = "image_workflow.remove_thumbnails:main"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

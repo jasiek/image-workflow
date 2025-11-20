@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# Get the project directory (assuming bin is inside project)
+PROJECT_DIR=$(dirname $(dirname $0))
+
+# Activate virtualenv
+source "$PROJECT_DIR/.venv/bin/activate"
+
+# Ensure Python can find the package
+export PYTHONPATH="$PROJECT_DIR"
+
+# Run the command
+iw-compress-tiffs "$@"
